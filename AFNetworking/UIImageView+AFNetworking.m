@@ -98,6 +98,15 @@ static char kAFImageRequestOperationObjectKey;
                        success:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, UIImage *image))success
                        failure:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, NSError *error))failure
 {
+    [self setImageWithURLRequest:urlRequest placeholderImage:placeholderImage scaleToImageViewSize:NO success:success failure:failure];
+}
+
+- (void)setImageWithURLRequest:(NSURLRequest *)urlRequest 
+              placeholderImage:(UIImage *)placeholderImage 
+          scaleToImageViewSize:(BOOL)scaleToImageViewSize
+                       success:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, UIImage *image))success
+                       failure:(void (^)(NSURLRequest *request, NSHTTPURLResponse *response, NSError *error))failure
+{
     [self cancelImageRequestOperation];
     
     UIImage *cachedImage = [[[self class] af_sharedImageCache] cachedImageForRequest:urlRequest];
@@ -110,31 +119,43 @@ static char kAFImageRequestOperationObjectKey;
         }
     } else {
         self.image = placeholderImage;
+        CGSize imageSize = self.frame.size;
         
         AFImageRequestOperation *requestOperation = [[[AFImageRequestOperation alloc] initWithRequest:urlRequest] autorelease];
-        [requestOperation setCompletionBlockWithSuccess:^(AFHTTPRequestOperation *operation, id responseObject) {
-            if ([[urlRequest URL] isEqual:[[self.af_imageRequestOperation request] URL]]) {
-                self.image = responseObject;
-                self.af_imageRequestOperation = nil;
-            }
-
-            if (success) {
-                success(operation.request, operation.response, responseObject);
-            }
-
-            [[[self class] af_sharedImageCache] cacheImage:responseObject forRequest:urlRequest];
-            
-
-        } failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-            if ([[urlRequest URL] isEqual:[[self.af_imageRequestOperation request] URL]]) {
-                self.af_imageRequestOperation = nil;
-            }
-
-            if (failure) {
-                failure(operation.request, operation.response, error);
-            }
-            
-        }];
+        
+        requestOperation.imageScale = [[UIScreen mainScreen] scale];
+        
+        requestOperation = [AFImageRequestOperation imageRequestOperationWithRequest:urlRequest 
+                                             imageProcessingBlock:^UIImage *(UIImage *image) {
+                                                 CGFloat scale = [[UIScreen mainScreen] scale];
+                                                 UIGraphicsBeginImageContextWithOptions(imageSize, YES, scale);
+                                                 [image drawInRect:CGRectMake(0, 0, imageSize.width, imageSize.height)];
+                                                 UIImage *newImage = UIGraphicsGetImageFromCurrentImageContext();
+                                                 UIGraphicsEndImageContext();
+                                                 
+                                                 return newImage;
+                                             } 
+                                                          success:^(NSURLRequest *request, NSHTTPURLResponse *response, UIImage *image) {
+                                                              if ([[urlRequest URL] isEqual:[[self.af_imageRequestOperation request] URL]]) {
+                                                                  self.image = image;
+                                                                  self.af_imageRequestOperation = nil;
+                                                              }
+                                                              
+                                                              if (success) {
+                                                                  success(request, response, image);
+                                                              }
+                                                              
+                                                              [[[self class] af_sharedImageCache] cacheImage:image forRequest:urlRequest];
+                                                          } 
+                                                          failure:^(NSURLRequest *request, NSHTTPURLResponse *response, NSError *error) {
+                                                              if ([[urlRequest URL] isEqual:[[self.af_imageRequestOperation request] URL]]) {
+                                                                  self.af_imageRequestOperation = nil;
+                                                              }
+                                                              
+                                                              if (failure) {
+                                                                  failure(request, response, error);
+                                                              }
+                                                          }];
         
         self.af_imageRequestOperation = requestOperation;
         
